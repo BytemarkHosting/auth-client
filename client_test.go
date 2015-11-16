@@ -131,7 +131,7 @@ func (s *TestSuite) TestNewRejectsNonHTTPchemes(c *C) {
 }
 
 func (s *TestSuite) TestHandlesTrickyEndpointURLs(c *C) {
-
+	c.Skip("TODO")
 }
 
 func (s *TestSuite) TestReadSession(c *C) {

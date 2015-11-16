@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 )
@@ -50,14 +50,9 @@ func (c *Client) doRequest(req *http.Request) ([]byte, error) {
 	}
 	defer rsp.Body.Close()
 
-	body := make([]byte, rsp.ContentLength)
-	for count := 0; count < len(body); {
-		n, err := rsp.Body.Read(body[count:])
-		count = count + n
-		// We shouldn't get EOF, we're not trying to read past the end
-		if err != nil && err != io.EOF {
-			return nil, err // no interest in partial bodies
-		}
+	body, err := ioutil.ReadAll(rsp.Body)
+	if err != nil {
+		return nil, err
 	}
 
 	if rsp.StatusCode < 200 || rsp.StatusCode > 299 {
