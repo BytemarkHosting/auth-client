@@ -2,7 +2,7 @@
 package main
 
 import (
-	client ".."
+	"bytemark.co.uk/auth3/client"
 	"flag"
 	"fmt"
 	"os"
