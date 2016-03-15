@@ -1,0 +1,10 @@
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Bytemark Hosting
+Upstream-Contact: Nick Thomas <nick@bytemark.co.uk>
+Source: https://gitlab.bytemark.co.uk/auth/client
+
+Files: *
+Copyright: 2016 Bytemark Hosting <nick@bytemark.co.uk>
+License: Bytemark
+  All rights reserved
+

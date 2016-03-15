@@ -1,0 +1,8 @@
+#!/usr/bin/make -f
+
+export DH_GOPKG := bytemark.co.uk/auth3/client
+
+include /usr/share/dpkg/default.mk
+
+%:
+	dh $@ --buildsystem=golang --with=golang

@@ -1,0 +1,3 @@
+#!/usr/bin/dh-exec
+
+usr/bin/cli => usr/bin/auth3-cli

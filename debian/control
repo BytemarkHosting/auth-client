@@ -1,0 +1,20 @@
+Source: golang-bytemark-auth3-client
+Section: unknown
+Priority: extra
+Maintainer: Nick Thomas <nick@bytemark.co.uk>
+Build-Depends: debhelper (>=9), dh-exec, dh-golang, golang-go (>= 1.5.1), golang-gocheck-dev
+XS-Go-Import-Path: bytemark.co.uk/auth3/client
+Standards-Version: 3.9.4
+Homepage: https://gitlab.bytemark.co.uk/auth/client
+
+Package: golang-bigv-auth3-client-dev
+Built-Using: ${misc:Built-Using}
+Depends: ${misc:Depends}
+Architecture: all
+Description: Auth client library
+
+Package: golang-bigv-auth3-client
+Built-Using: ${misc:Built-Using}
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Architecture: any
+Description: Auth client binary
