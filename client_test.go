@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	. "gopkg.in/check.v1"
+	. "launchpad.net/gocheck"
 	"testing"
 )
 
