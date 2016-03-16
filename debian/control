@@ -7,13 +7,13 @@ XS-Go-Import-Path: bytemark.co.uk/auth3/client
 Standards-Version: 3.9.4
 Homepage: https://gitlab.bytemark.co.uk/auth/client
 
-Package: golang-bigv-auth3-client-dev
+Package: golang-bytemark-auth3-client-dev
 Built-Using: ${misc:Built-Using}
 Depends: ${misc:Depends}
 Architecture: all
 Description: Auth client library
 
-Package: golang-bigv-auth3-client
+Package: golang-bytemark-auth3-client
 Built-Using: ${misc:Built-Using}
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Architecture: any
