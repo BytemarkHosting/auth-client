@@ -44,21 +44,26 @@ type SessionData struct {
 	GroupMemberships []string `json:"group_memberships"`
 }
 
-func (c *Client) doRequest(ctx context.Context, req *http.Request) ([]byte, error) {
-	rsp, rspErr := c.HTTP.Do(req.WithContext(ctx))
-	if rspErr != nil {
-		return nil, rspErr
-	}
-	defer rsp.Body.Close()
-
-	body, err := ioutil.ReadAll(rsp.Body)
-	if err != nil {
+func errOrCtxErr(ctx context.Context, err error) error {
 		select {
 		case <-ctx.Done():
 			err = ctx.Err()
 		default:
 		}
-		return nil, err
+		return err
+}
+
+func (c *Client) doRequest(ctx context.Context, req *http.Request) ([]byte, error) {
+	rsp, rspErr := c.HTTP.Do(req.WithContext(ctx))
+	if rspErr != nil {
+		return nil, rspErr
+		return nil, errOrCtxErr(ctx, rspErr)
+	}
+	defer rsp.Body.Close()
+
+	body, err := ioutil.ReadAll(rsp.Body)
+	if err != nil {
+		return nil, errOrCtxErr(ctx, err)
 	}
 
 	if rsp.StatusCode < 200 || rsp.StatusCode > 299 {
