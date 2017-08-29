@@ -7,6 +7,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,8 +44,8 @@ type SessionData struct {
 	GroupMemberships []string `json:"group_memberships"`
 }
 
-func (c *Client) doRequest(req *http.Request) ([]byte, error) {
-	rsp, rspErr := c.HTTP.Do(req)
+func (c *Client) doRequest(ctx context.Context, req *http.Request) ([]byte, error) {
+	rsp, rspErr := c.HTTP.Do(req.WithContext(ctx))
 	if rspErr != nil {
 		return nil, rspErr
 	}
@@ -52,6 +53,11 @@ func (c *Client) doRequest(req *http.Request) ([]byte, error) {
 
 	body, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+		default:
+		}
 		return nil, err
 	}
 
@@ -88,7 +94,7 @@ func New(endpoint string) (*Client, error) {
 	return &Client{sessionEndpoint: parsed}, nil
 }
 
-func (c *Client) ReadSession(token string) (*SessionData, error) {
+func (c *Client) ReadSession(ctx context.Context, token string) (*SessionData, error) {
 	x := *c.sessionEndpoint // shallow copy. Don't touch UserInfo
 	x.Path = x.Path + "/" + token
 	req, reqErr := http.NewRequest("GET", x.String(), nil)
@@ -97,7 +103,7 @@ func (c *Client) ReadSession(token string) (*SessionData, error) {
 	}
 
 	req.Header.Add("Accept", "application/json")
-	body, bodyErr := c.doRequest(req)
+	body, bodyErr := c.doRequest(ctx, req)
 	if bodyErr != nil {
 		return nil, &Error{"Request failed", bodyErr}
 	}
@@ -115,7 +121,7 @@ func (c *Client) ReadSession(token string) (*SessionData, error) {
 }
 
 // Creates a session and returns the token
-func (c *Client) CreateSessionToken(credentials Credentials) (string, error) {
+func (c *Client) CreateSessionToken(ctx context.Context, credentials Credentials) (string, error) {
 	data, marshalErr := json.Marshal(credentials)
 	if marshalErr != nil {
 		return "", marshalErr
@@ -129,7 +135,7 @@ func (c *Client) CreateSessionToken(credentials Credentials) (string, error) {
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accept", "text/plain")
 
-	body, err := c.doRequest(req)
+	body, err := c.doRequest(ctx, req)
 	if err != nil || len(body) == 0 {
 		return "", &Error{"Couldn't create session", err}
 	}
@@ -140,14 +146,14 @@ func (c *Client) CreateSessionToken(credentials Credentials) (string, error) {
 }
 
 // Creates a session, returning the session data rather than just the token
-func (c *Client) CreateSession(credentials Credentials) (*SessionData, error) {
+func (c *Client) CreateSession(ctx context.Context, credentials Credentials) (*SessionData, error) {
 
-	token, createErr := c.CreateSessionToken(credentials)
+	token, createErr := c.CreateSessionToken(ctx, credentials)
 	if createErr != nil {
 		return nil, createErr
 	}
 
-	sessionData, getErr := c.ReadSession(token)
+	sessionData, getErr := c.ReadSession(ctx, token)
 	if getErr != nil {
 		return nil, getErr
 	}

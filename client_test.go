@@ -2,13 +2,14 @@ package client_test
 
 import (
 	. "."
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
-	. "launchpad.net/gocheck"
 	"testing"
 )
 
@@ -16,10 +17,6 @@ type TestSuite struct {
 	ts     *httptest.Server
 	client *Client
 }
-
-var _ = Suite(&TestSuite{})
-
-func Test(t *testing.T) { TestingT(t) }
 
 // FIXME: test concurrency=1 as a result of using globals here
 var fCreds = map[string]Credentials{
@@ -35,8 +32,13 @@ var fSessions = map[string]*SessionData{
 	},
 }
 
+// This handler just blocks for a second
+func SlowHandler(w http.ResponseWriter, r *http.Request) {
+	time.Sleep(1 * time.Second)
+}
+
 // Uses the above two vars to answer auth questions like a real auth server.
-func FixturesHandler(s *TestSuite, c *C, w http.ResponseWriter, r *http.Request) {
+func FixturesHandler(w http.ResponseWriter, r *http.Request) {
 	pathBits := strings.Split(r.URL.Path, "/")
 	switch r.Method {
 	case "POST":
@@ -104,62 +106,171 @@ func FixturesHandler(s *TestSuite, c *C, w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// Invariant server, so start it once
-func (s *TestSuite) SetUpSuite(c *C) {
-	s.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { FixturesHandler(s, c, w, r) }))
-
+func withHandledClient(t *testing.T, h func(w http.ResponseWriter, r *http.Request), f func(client *Client)) {
+	ts := httptest.NewServer(http.HandlerFunc(h))
+	defer ts.Close()
+	client, err := New(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f(client)
 }
 
-func (s *TestSuite) TearDownSuite(c *C) {
-	if s.ts != nil {
-		s.ts.Close()
+func withTestClient(t *testing.T, f func(client *Client)) {
+	withHandledClient(t, FixturesHandler, f)
+}
+
+func withSlowTestClient(t *testing.T, f func(client *Client)) {
+	withHandledClient(t, SlowHandler, f)
+}
+
+func TestNewRejectsNonHTTPchemes(t *testing.T) {
+	x, err := New("ftp://example.com")
+	if x != nil {
+		t.Error("did not expect a client to be returned")
+	}
+	if err == nil {
+		t.Fatal("expected an error to be returned")
+	}
+	if !strings.Contains(err.Error(), "scheme") {
+		t.Error("unexpected error: %s", err.Error())
 	}
 }
 
-// New client per test though
-func (s *TestSuite) SetUpTest(c *C) {
-	client, err := New(s.ts.URL)
-	c.Assert(err, IsNil)
-	s.client = client
+func TestHandlesTrickyEndpointURLs(t *testing.T) {
+	t.Skip("TODO")
 }
 
-func (s *TestSuite) TestNewRejectsNonHTTPchemes(c *C) {
-	x, err := New("ftp://example.com")
-	c.Assert(x, IsNil)
-	c.Assert(err, NotNil)
-	c.Assert(err.Error(), Matches, ".*scheme.*")
+func cmpStringArrays(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
-func (s *TestSuite) TestHandlesTrickyEndpointURLs(c *C) {
-	c.Skip("TODO")
+func cmpSession(t *testing.T, a, b *SessionData) {
+	if a.Token != b.Token {
+		t.Error("unexpected Token %s", a.Token)
+	}
+	if a.Username != b.Username {
+		t.Error("unexpected Username %s", a.Token)
+	}
+	if !cmpStringArrays(a.Factors, b.Factors) {
+		t.Error("unexpected Factors %v", a.Factors)
+	}
+	if !cmpStringArrays(a.GroupMemberships, b.GroupMemberships) {
+		t.Error("unexpected GroupMemberships %v", a.Factors)
+	}
 }
 
-func (s *TestSuite) TestReadSession(c *C) {
-	session, err := s.client.ReadSession("good-session")
-	c.Assert(err, IsNil)
-	c.Assert(session, DeepEquals, fSessions["good-session"])
+func TestReadSession(t *testing.T) {
+	withTestClient(t, func(client *Client) {
+		session, err := client.ReadSession(context.Background(), "good-session")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmpSession(t, session, fSessions["good-session"])
+	})
 }
 
-func (s *TestSuite) TestCreateSession(c *C) {
-	session, err := s.client.CreateSession(fCreds["good-user"])
-	c.Assert(err, IsNil)
-	c.Assert(session, DeepEquals, fSessions["good-session"])
+func TestReadSessionCancellation(t *testing.T) {
+	withSlowTestClient(t, func(client *Client) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		session, err := client.ReadSession(ctx, "good-session")
+		if session != nil {
+			t.Error("no session should be returned")
+		}
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		if !strings.Contains(err.Error(), "context canceled") {
+			t.Error("unexpected error: %v", err)
+		}
+	})
 }
 
-func (s *TestSuite) TestCreateSessionWithBadCredentials(c *C) {
-	session, err := s.client.CreateSession(Credentials{"username": "bad-user", "password": "foo"})
-	c.Assert(err, NotNil)
-	c.Assert(session, IsNil)
+func (s *TestSuite) TestCreateSession(t *testing.T) {
+	withTestClient(t, func(client *Client) {
+		session, err := client.CreateSession(context.Background(), fCreds["good-user"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmpSession(t, session, fSessions["good-session"])
+	})
 }
 
-func (s *TestSuite) TestCreateSessionToken(c *C) {
-	token, err := s.client.CreateSessionToken(fCreds["good-user"])
-	c.Assert(err, IsNil)
-	c.Assert(token, Equals, "good-session")
+func TestCreateSessionCancellation(t *testing.T) {
+	withSlowTestClient(t, func(client *Client) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		session, err := client.CreateSession(ctx, fCreds["good-user"])
+		if session != nil {
+			t.Error("no session should be returned")
+		}
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		if !strings.Contains(err.Error(), "context canceled") {
+			t.Error("unexpected error: %v", err)
+		}
+	})
 }
 
-func (s *TestSuite) TestCreateSessionTokenWithBadCredentials(c *C) {
-	token, err := s.client.CreateSession(Credentials{"username": "bad-user", "password": "foo"})
-	c.Assert(err, NotNil)
-	c.Assert(token, IsNil)
+func TestCreateSessionWithBadCredentials(t *testing.T) {
+	withTestClient(t, func(client *Client) {
+		session, err := client.CreateSession(context.Background(), Credentials{"username": "bad-user", "password": "foo"})
+		if err == nil {
+			t.Error("expected an error")
+		}
+		if session != nil {
+			t.Error("no session should be returned")
+		}
+	})
+}
+
+func TestCreateSessionToken(t *testing.T) {
+	withTestClient(t, func(client *Client) {
+		token, err := client.CreateSessionToken(context.Background(), fCreds["good-user"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != fSessions["good-session"].Token {
+			t.Error("unexpected token %s", token)
+		}
+	})
+}
+
+func TestCreateSessionTokenCancellation(t *testing.T) {
+	withSlowTestClient(t, func(client *Client) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		token, err := client.CreateSessionToken(ctx, fCreds["good-user"])
+		if token != "" {
+			t.Error("no token should be returned")
+		}
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		if !strings.Contains(err.Error(), "context canceled") {
+			t.Error("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestCreateSessionTokenWithBadCredentials(t *testing.T) {
+	withTestClient(t, func(client *Client) {
+		session, err := client.CreateSession(context.Background(), Credentials{"username": "bad-user", "password": "foo"})
+		if err == nil {
+			t.Error("expected an error")
+		}
+		if session != nil {
+			t.Error("no session should be returned")
+		}
+	})
 }
