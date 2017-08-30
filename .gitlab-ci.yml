@@ -7,7 +7,6 @@ test:jessie: &test
   variables:
     DISTRO: jessie
   script:
-    - go version
     - OLDPWD="$PWD"
     - source setup-gopath
     - go get github.com/modocache/gover golang.org/x/tools/cmd/cover
