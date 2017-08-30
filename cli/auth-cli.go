@@ -2,10 +2,12 @@
 package main
 
 import (
-	"bytemark.co.uk/auth3/client"
+	"context"
 	"flag"
 	"fmt"
 	"os"
+
+	"gitlab.bytemark.co.uk/auth/client"
 )
 
 var (
@@ -25,9 +27,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := context.TODO()
+
 	switch *mode {
 	case "ReadSession":
-		session, err := auth.ReadSession(*token)
+		session, err := auth.ReadSession(ctx, *token)
 		fmt.Printf("Session: %+v, err: %+v\n", session, err)
 	case "CreateSession":
 		creds := make(client.Credentials)
@@ -36,7 +40,7 @@ func main() {
 		if *yubikey != "" {
 			creds["yubikey"] = *yubikey
 		}
-		session, err := auth.CreateSession(creds)
+		session, err := auth.CreateSession(ctx, creds)
 		fmt.Printf("Session: %+v, err: %+v\n", session, err)
 	default:
 		fmt.Printf("Unrecognised mode: %s\n", *mode)

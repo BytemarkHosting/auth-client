@@ -1,0 +1,31 @@
+stages:
+  - test
+
+test:jessie: &test
+  image: $CI_REGISTRY/docker-images/layers:$DISTRO-golang
+  stage: test
+  variables:
+    DISTRO: jessie
+  script:
+    - OLDPWD="$PWD"
+    - source setup-gopath
+    - go get github.com/modocache/gover golang.org/x/tools/cmd/cover
+    - "for i in $(go list ./...) ; do pushd $GOPATH/src/$i ; go get -t ; popd ; done"
+    - |
+      for pkg in $(go list ./...); do
+        shortpkg="${pkg##gitlab.bytemark.co.uk/auth/}"
+        pkg_with_underscores="${shortpkg//\//_}"
+        go test -coverprofile="${pkg_with_underscores}.coverprofile" $pkg
+      done
+    - $GOPATH/bin/gover
+    - go tool cover -func gover.coverprofile | tail -n 1
+    - go tool cover -html gover.coverprofile -o "$OLDPWD/coverage.html"
+  artifacts:
+    paths:
+    - coverage.html
+    expire_in: '1 week'
+
+test:stretch:
+  <<: *test
+  variables:
+    DISTRO: stretch

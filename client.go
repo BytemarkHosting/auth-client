@@ -45,18 +45,17 @@ type SessionData struct {
 }
 
 func errOrCtxErr(ctx context.Context, err error) error {
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
-		default:
-		}
-		return err
+	select {
+	case <-ctx.Done():
+		err = ctx.Err()
+	default:
+	}
+	return err
 }
 
 func (c *Client) doRequest(ctx context.Context, req *http.Request) ([]byte, error) {
 	rsp, rspErr := c.HTTP.Do(req.WithContext(ctx))
 	if rspErr != nil {
-		return nil, rspErr
 		return nil, errOrCtxErr(ctx, rspErr)
 	}
 	defer rsp.Body.Close()
