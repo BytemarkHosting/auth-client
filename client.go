@@ -49,7 +49,7 @@ type SessionData struct {
 	GroupMemberships []string `json:"group_memberships"`
 }
 
-// New returns a newly initiated client.
+// New returns a newly initialised client.
 func New(endpoint string) (*Client, error) {
 	// ensure we end up with a string like "https://example.com/session"
 	parsed, err := url.Parse(endpoint)
@@ -141,7 +141,7 @@ func (c *Client) CreateSession(ctx context.Context, credentials Credentials) (*S
 	return sessionData, nil
 }
 
-// CreateImpersonatedSessionToken uses and existing session token to create
+// CreateImpersonatedSessionToken uses an existing session token to create
 // an impersonated session and returns its token.
 func (c *Client) CreateImpersonatedSessionToken(ctx context.Context, token, username string) (string, error) {
 	credentials := Credentials{
