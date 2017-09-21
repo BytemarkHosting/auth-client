@@ -13,14 +13,10 @@ import (
 	"gitlab.bytemark.co.uk/auth/client"
 )
 
-type TestSuite struct {
-	ts     *httptest.Server
-	client *client.Client
-}
-
 // FIXME: test concurrency=1 as a result of using globals here
 var fCreds = map[string]client.Credentials{
-	"good-user": client.Credentials{"username": "good-user", "password": "foo"},
+	"good-user":    client.Credentials{"username": "good-user", "password": "foo"},
+	"another-user": client.Credentials{"username": "another-user"},
 }
 
 var fSessions = map[string]*client.SessionData{
@@ -37,69 +33,93 @@ func SlowHandler(w http.ResponseWriter, r *http.Request) {
 	time.Sleep(1 * time.Second)
 }
 
-// Uses the above two vars to answer auth questions like a real auth server.
-func FixturesHandler(w http.ResponseWriter, r *http.Request) {
-	pathBits := strings.Split(r.URL.Path, "/")
-	switch r.Method {
-	case "POST":
-		switch r.URL.Path {
-		case "/session":
-			if r.Header.Get("Content-Type") == "application/json" {
-				bodyCreds := make(client.Credentials)
-				data := make([]byte, 4096)
-				r, err := r.Body.Read(data)
-				if r == 0 || (err != nil && err != io.EOF) {
-					w.WriteHeader(400)
-					w.Write([]byte("Error reading body: " + err.Error()))
-					return
-				}
-				jErr := json.Unmarshal(data[0:r], &bodyCreds)
-				if jErr != nil {
-					w.WriteHeader(400)
-					w.Write([]byte("Error parsing body to JSON: " + jErr.Error()))
-					return
-				}
+func getCreds(w http.ResponseWriter, req *http.Request) (client.Credentials, bool) {
+	bodyCreds := make(client.Credentials)
+	data := make([]byte, 4096)
+	r, err := req.Body.Read(data)
+	if r == 0 || (err != nil && err != io.EOF) {
+		http.Error(w, "Error reading body: "+err.Error(), 400)
+		return bodyCreds, false
+	}
+	jErr := json.Unmarshal(data[0:r], &bodyCreds)
+	if jErr != nil {
+		http.Error(w, "Error parsing body to JSON: "+jErr.Error(), 400)
+		return bodyCreds, false
+	}
+	return bodyCreds, true
+}
+
+func stringResponse(w http.ResponseWriter, resp string) {
+	_, _ = w.Write([]byte(resp))
+}
+
+func fixturesPostHandler(w http.ResponseWriter, r *http.Request, pathBits []string) {
+
+	switch pathBits[1] {
+	case "session":
+		if r.Header.Get("Content-Type") == "application/json" {
+			bodyCreds, ok := getCreds(w, r)
+			if !ok {
+				return
+			}
+			if len(pathBits) == 2 {
 				ourCreds := fCreds[bodyCreds["username"]]
 				if ourCreds != nil {
 					if ourCreds["password"] != bodyCreds["password"] {
 						w.WriteHeader(403)
 						return
 					}
-					w.Write([]byte("good-session"))
+					stringResponse(w, "good-session")
 					return
 				}
-				w.WriteHeader(403)
-				return
 			} else {
-				w.WriteHeader(400)
-				w.Write([]byte(`Bad content-type`))
+				d := fSessions[pathBits[2]]
+				if d == nil {
+					w.WriteHeader(403)
+					return
+				}
+				stringResponse(w, "impersonated-session")
 				return
 			}
-		default:
+			w.WriteHeader(403)
+			return
+		} else {
+			http.Error(w, `Bad content-type`, 400)
+			return
+		}
+	default:
+		w.WriteHeader(404)
+		return
+	}
+}
+
+func fixturesGetHandler(w http.ResponseWriter, r *http.Request, pathBits []string) {
+
+	switch pathBits[1] {
+	case "session":
+		d := fSessions[pathBits[2]]
+		if d == nil {
 			w.WriteHeader(404)
 			return
 		}
+		w.Header().Add("Content-Type", "application/json")
+		// We construct our own json here. The token is not included in the output.
+		stringResponse(w, `{"username":"`+d.Username+`","factors":["`+strings.Join(d.Factors, `","`)+`"],`+`"group_memberships":["`+strings.Join(d.GroupMemberships, `","`)+`"]}`)
+		return
+	default:
+		w.WriteHeader(404)
+		return
+	}
+}
+
+// Uses the above two vars to answer auth questions like a real auth server.
+func FixturesHandler(w http.ResponseWriter, r *http.Request) {
+	pathBits := strings.Split(r.URL.Path, "/")
+	switch r.Method {
+	case "POST":
+		fixturesPostHandler(w, r, pathBits)
 	case "GET":
-		switch pathBits[1] {
-		case "session":
-			d := fSessions[pathBits[2]]
-			if d == nil {
-				w.WriteHeader(404)
-				return
-			}
-			w.Header().Add("Content-Type", "application/json")
-			// We construct our own json here. The token is not included in the output.
-			w.Write([]byte(
-				`{"username":"` + d.Username +
-					`","factors":["` + strings.Join(d.Factors, `","`) + `"],` +
-					`"group_memberships":["` + strings.Join(d.GroupMemberships, `","`) +
-					`"]}`,
-			))
-			return
-		default:
-			w.WriteHeader(404)
-			return
-		}
+		fixturesGetHandler(w, r, pathBits)
 	default:
 		w.WriteHeader(405)
 		return
@@ -195,7 +215,7 @@ func TestReadSessionCancellation(t *testing.T) {
 	})
 }
 
-func (s *TestSuite) TestCreateSession(t *testing.T) {
+func TestCreateSession(t *testing.T) {
 	withTestClient(t, func(c *client.Client) {
 		session, err := c.CreateSession(context.Background(), fCreds["good-user"])
 		if err != nil {
@@ -271,6 +291,30 @@ func TestCreateSessionTokenWithBadCredentials(t *testing.T) {
 		}
 		if session != nil {
 			t.Error("no session should be returned")
+		}
+	})
+}
+
+func TestCreateImpersonatedSessionTokenWithGoodToken(t *testing.T) {
+	withTestClient(t, func(c *client.Client) {
+		token, err := c.CreateImpersonatedSessionToken(context.Background(), "good-session", "impersonated")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "impersonated-session" {
+			t.Errorf("unexpected token %s", token)
+		}
+	})
+}
+
+func TestCreateImpersonatedSessionTokenWithBadToken(t *testing.T) {
+	withTestClient(t, func(c *client.Client) {
+		token, err := c.CreateImpersonatedSessionToken(context.Background(), "bad-session", "impersonated")
+		if err == nil {
+			t.Error("expected an error")
+		}
+		if token != "" {
+			t.Error("no token should be returned")
 		}
 	})
 }
