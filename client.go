@@ -169,6 +169,23 @@ func (c *Client) CreateImpersonatedSessionToken(ctx context.Context, token, user
 
 }
 
+// CreateImpersonatedSession uses an existing session token to create an
+// impersonated session, returning the session data rather than just the token.
+func (c *Client) CreateImpersonatedSession(ctx context.Context, token, user string) (*SessionData, error) {
+
+	token, createErr := c.CreateImpersonatedSessionToken(ctx, token, user)
+	if createErr != nil {
+		return nil, createErr
+	}
+
+	sessionData, getErr := c.ReadSession(ctx, token)
+	if getErr != nil {
+		return nil, getErr
+	}
+
+	return sessionData, nil
+}
+
 // TODO: func (c *Client) CreateUser() {}
 // TODO: func (c *Client) ReadUser() {}
 // TODO: func (c *Client) IsUsernameAvailable(username string) {}

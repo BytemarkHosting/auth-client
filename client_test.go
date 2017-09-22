@@ -15,8 +15,7 @@ import (
 
 // FIXME: test concurrency=1 as a result of using globals here
 var fCreds = map[string]client.Credentials{
-	"good-user":    client.Credentials{"username": "good-user", "password": "foo"},
-	"another-user": client.Credentials{"username": "another-user"},
+	"good-user": client.Credentials{"username": "good-user", "password": "foo"},
 }
 
 var fSessions = map[string]*client.SessionData{
@@ -25,6 +24,12 @@ var fSessions = map[string]*client.SessionData{
 		Username:         "foo",
 		Factors:          []string{"password", "google-auth"},
 		GroupMemberships: []string{"staff"},
+	},
+	"impersonated-session": &client.SessionData{
+		Token:    "impersonated-session",
+		Username: "bar",
+		Factors:  []string{"impersonated"},
+		GroupMemberships: []string{"wibble"},
 	},
 }
 
@@ -316,5 +321,15 @@ func TestCreateImpersonatedSessionTokenWithBadToken(t *testing.T) {
 		if token != "" {
 			t.Error("no token should be returned")
 		}
+	})
+}
+
+func TestCreateImpersonatedSession(t *testing.T) {
+	withTestClient(t, func(c *client.Client) {
+		session, err := c.CreateImpersonatedSession(context.Background(), "good-session", "impersonated")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmpSession(t, session, fSessions["impersonated-session"])
 	})
 }
