@@ -2,109 +2,13 @@ package client_test
 
 import (
 	"context"
-	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"gitlab.bytemark.co.uk/auth/client"
 )
-
-type TestSuite struct {
-	ts     *httptest.Server
-	client *client.Client
-}
-
-// FIXME: test concurrency=1 as a result of using globals here
-var fCreds = map[string]client.Credentials{
-	"good-user": client.Credentials{"username": "good-user", "password": "foo"},
-}
-
-var fSessions = map[string]*client.SessionData{
-	"good-session": &client.SessionData{
-		Token:            "good-session",
-		Username:         "foo",
-		Factors:          []string{"password", "google-auth"},
-		GroupMemberships: []string{"staff"},
-	},
-}
-
-// This handler just blocks for a second
-func SlowHandler(w http.ResponseWriter, r *http.Request) {
-	time.Sleep(1 * time.Second)
-}
-
-// Uses the above two vars to answer auth questions like a real auth server.
-func FixturesHandler(w http.ResponseWriter, r *http.Request) {
-	pathBits := strings.Split(r.URL.Path, "/")
-	switch r.Method {
-	case "POST":
-		switch r.URL.Path {
-		case "/session":
-			if r.Header.Get("Content-Type") == "application/json" {
-				bodyCreds := make(client.Credentials)
-				data := make([]byte, 4096)
-				r, err := r.Body.Read(data)
-				if r == 0 || (err != nil && err != io.EOF) {
-					w.WriteHeader(400)
-					w.Write([]byte("Error reading body: " + err.Error()))
-					return
-				}
-				jErr := json.Unmarshal(data[0:r], &bodyCreds)
-				if jErr != nil {
-					w.WriteHeader(400)
-					w.Write([]byte("Error parsing body to JSON: " + jErr.Error()))
-					return
-				}
-				ourCreds := fCreds[bodyCreds["username"]]
-				if ourCreds != nil {
-					if ourCreds["password"] != bodyCreds["password"] {
-						w.WriteHeader(403)
-						return
-					}
-					w.Write([]byte("good-session"))
-					return
-				}
-				w.WriteHeader(403)
-				return
-			} else {
-				w.WriteHeader(400)
-				w.Write([]byte(`Bad content-type`))
-				return
-			}
-		default:
-			w.WriteHeader(404)
-			return
-		}
-	case "GET":
-		switch pathBits[1] {
-		case "session":
-			d := fSessions[pathBits[2]]
-			if d == nil {
-				w.WriteHeader(404)
-				return
-			}
-			w.Header().Add("Content-Type", "application/json")
-			// We construct our own json here. The token is not included in the output.
-			w.Write([]byte(
-				`{"username":"` + d.Username +
-					`","factors":["` + strings.Join(d.Factors, `","`) + `"],` +
-					`"group_memberships":["` + strings.Join(d.GroupMemberships, `","`) +
-					`"]}`,
-			))
-			return
-		default:
-			w.WriteHeader(404)
-			return
-		}
-	default:
-		w.WriteHeader(405)
-		return
-	}
-}
 
 func withHandledClient(t *testing.T, h func(w http.ResponseWriter, r *http.Request), f func(client *client.Client)) {
 	ts := httptest.NewServer(http.HandlerFunc(h))
@@ -195,7 +99,7 @@ func TestReadSessionCancellation(t *testing.T) {
 	})
 }
 
-func (s *TestSuite) TestCreateSession(t *testing.T) {
+func TestCreateSession(t *testing.T) {
 	withTestClient(t, func(c *client.Client) {
 		session, err := c.CreateSession(context.Background(), fCreds["good-user"])
 		if err != nil {
@@ -258,7 +162,7 @@ func TestCreateSessionTokenCancellation(t *testing.T) {
 			t.Fatal("expected an error")
 		}
 		if !strings.Contains(err.Error(), "context canceled") {
-			t.Error("unexpected error: %v", err)
+			t.Errorf("unexpected error: %v", err)
 		}
 	})
 }
@@ -272,5 +176,39 @@ func TestCreateSessionTokenWithBadCredentials(t *testing.T) {
 		if session != nil {
 			t.Error("no session should be returned")
 		}
+	})
+}
+
+func TestCreateImpersonatedSessionTokenWithGoodToken(t *testing.T) {
+	withTestClient(t, func(c *client.Client) {
+		token, err := c.CreateImpersonatedSessionToken(context.Background(), "good-session", "impersonated")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "impersonated-session" {
+			t.Errorf("unexpected token %s", token)
+		}
+	})
+}
+
+func TestCreateImpersonatedSessionTokenWithBadToken(t *testing.T) {
+	withTestClient(t, func(c *client.Client) {
+		token, err := c.CreateImpersonatedSessionToken(context.Background(), "bad-session", "impersonated")
+		if err == nil {
+			t.Error("expected an error")
+		}
+		if token != "" {
+			t.Error("no token should be returned")
+		}
+	})
+}
+
+func TestCreateImpersonatedSession(t *testing.T) {
+	withTestClient(t, func(c *client.Client) {
+		session, err := c.CreateImpersonatedSession(context.Background(), "good-session", "impersonated")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmpSession(t, session, fSessions["impersonated-session"])
 	})
 }
